@@ -1,0 +1,419 @@
+---
+title: "Homework1"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Read CSV
+```{r, echo=FALSE, warning=FALSE}
+adult <- read.csv("U:/adult.csv", header = FALSE)
+colnames(adult) <- c("age", "workclass", "fnlwgt", "education", "education-num",
+                             "marital-status", "occupation", "relationship", "race", "sex", 
+                             "capital-gain", "capital-loss", "hours-per-week", "native-country",
+                     "income")
+```
+
+# Q1: How many observations (rows) and how many variables (columns) are there in the raw data?
+```{r, echo=FALSE, warning=FALSE}
+data.frame(variables = ncol(adult), observations = nrow(adult))
+```
+# Q2: Produce a table of variables showing their types.
+```{r, echo=FALSE, warning=FALSE}
+library(broom)
+data_type <- data.frame(unlist(sapply(adult,class)))
+colnames(data_type)[1] <- "Variable Type"
+data_type
+```
+# Q3: Some of the variables appear to be numeric but should be treated as categorical. Your best clue is whether a variable has only a few discrete values. Which numeric variables should be treated as categorical?
+```{r, echo=FALSE, warning=FALSE}
+adult$`education-num` <- as.character(adult$`education-num`)
+```
+<!-- education-num showed as numeric/integer but need to be treated as categorical. -->
+
+# Q4: For numeric variables, produce a table of statistics including missing values, min, max, median, mean, standard deviation, skewness and kurtosis.
+```{r, echo=FALSE, warning=FALSE}
+int <- c()
+for (i in 1:ncol(adult)) {
+  if (class(adult[,i]) == "integer") 
+    {int <- c(int,colnames(adult)[i])} else {NULL}
+}
+
+library(e1071)
+#browser()
+calcstats <- function(x) {
+  mis <- sum(is.na(x))
+  min <- round(min(x,na.rm=TRUE), 2)
+  max <- round(max(x,na.rm=TRUE), 2)
+  med <- round(median(x,na.rm=TRUE), 2)
+  mu <- round(mean(x,na.rm=TRUE), 2)
+  sigma <- round(sd(x,na.rm = TRUE), 2)
+  skew <- round(skewness(x,na.rm=TRUE), 3)
+  kurt <- round(kurtosis(x,na.rm=TRUE), 2)
+  
+  result <- data.frame(mis,min, max, med, mu, sigma, skew, kurt)
+                    
+}
+
+library(tidyverse)
+results <- data.frame(matrix(nrow=0,ncol=8))
+colnames(results) <- c('mis','min', 'max', 'med', 'mu', 'sigma', 'skew', 'kurt')
+for (i in int) {
+  result <- calcstats(adult[,i])
+  results<- results %>%
+    add_row(result)
+}
+
+rownames(results) <- int
+
+print(results)
+
+```
+
+# Q5: How many outliers are present in each numeric variable? Show the tallies in a table. Set them to missing.
+```{r, echo=FALSE, warning=FALSE}
+outliers <- c()
+for (i in int) {
+  outliers <- c(outliers,length(boxplot.stats(adult[,i])$out))
+  
+}
+
+data.frame(int,outliers) # The number of outliers for each variable
+
+# new_int <- c("fnlwgt")
+# 
+# for (i in new_int) {
+#   adult[which(adult[,i] %in% boxplot.stats(adult[,i])$out),i] <- NA
+# }
+# summary(adult)
+
+
+```
+<!-- Replace outliers with NA: We do not replace outliers of age, capital_gain and capital_loss, because there is not any abnormal values in column of age and not any good reasons to regard elder persons as outliers.  -->
+<!-- For capital_gain and capital_loss, we want to use them to create a new binary variable, capital_net_gain, so we do not clean these two columns as well. -->
+<!-- For hour-per-week, we use another way to deal with outliers instead of setting them as missing values -->
+<!-- We did not do set outliers of fnlwgt to missings, since it is multipler -->
+
+
+# Q6: Count the unique values of each categorical variable, including missing values. Are there any unusual values in any of the categorical variables?
+```{r, echo=FALSE, warning=FALSE}
+cha <- c()
+for (i in rownames(data_type)) {
+  if (data_type[i,] == "character") {cha <- c(cha, i)} else {cha}
+}
+
+print(cha) # Categorical Variables
+
+cnt <- c()
+for (i in cha) {
+  new_cnt <- length(unique(adult[,i]))
+  cnt <- c(cnt, new_cnt)
+}
+
+all_char <- data.frame(var = cha, cnt_uni = cnt)
+
+all_char # The number of unique values of each categorical variable
+
+
+sapply(adult[,cha],unique)
+
+#"?" in $workclass and $native-country
+
+
+```
+
+
+# Q7: Impute the missing values. Be sure to explain how you did that in your presentation.
+
+# *comments: 
+<!-- Do not change outliers of Age to missing value, since there is not any abnormal values, extremely small (<0) or large. -->
+
+
+```{r, echo=FALSE, warning=FALSE}
+# ggplot(adult, aes(x=fnlwgt)) +geom_density(color='blue')
+# x<- boxplot.stats(adult[,'fnlwgt'])$out
+# adult$fnlwgt[is.na(adult$fnlwgt)]<- median(adult$fnlwgt,na.rm=TRUE)
+```
+<!-- *comments: fnlwgt: since the fnlwgt is highly skewed, we replace the missing value by median of fnlwgt -->
+
+
+```{r, echo=FALSE, warning=FALSE}
+# Education-num: Subset of data with education and education-num
+education_num_imput <- adult[is.na(adult$`education-num`),c("education","education-num")] 
+table(education_num_imput$education)
+table(adult$education)
+
+
+edu_missing <- adult[which(is.na(adult$`education-num`)),'education']
+table(edu_missing)
+adult[which(is.na(adult$`education-num`)),'education-num'] <- mean(adult[which(adult$education==' 10th'),"education-num"])
+```
+<!-- *comments: We find out there should be collinearity between education and education-num, so we use education instead of education-num in the model. We do not need education-num in the model, but we find out all missing values are from 1st to preschool. We could replace these missing values with the one which is smaller than average education-num for 10th. -->
+
+
+
+```{r, echo=FALSE, warning=FALSE}
+#Capital-gain and Capital-loss: 
+adult$capital_net_gain <- (adult$`capital-gain` - adult$`capital-loss`) > 0
+
+```
+<!-- *comments: we decide to create a binary variable, capital-gain (Y/N) = capital-gain - capital-loss. We use the binary variable instead of the other two in the model.  -->
+
+
+
+```{r, echo=FALSE, warning=FALSE}
+#For hours_per_week:
+adult$`hours-per-week`[adult$`hours-per-week` > 78] <- 89
+adult$`hours-per-week`[adult$`hours-per-week` < 17] <- 9
+
+```
+<!-- *comments: since the outliers detected by the 'boxplot.stats' contains over 9000 records, given the 32560 observations that the original dataset provides, the outliers detected occupies more than 27% of the original volume. Thus we want to manually replace the outliers, details see below: -->
+
+<!-- The outliers range is between[1,17] & [79,99], these numbers are somehow not distinct in real working scenarios, however, through boxplot we can say that these outliers presented a flat distribution compared to the box itself, which will do harm to the models we are about to build, thus, we replaced outliers in [1,17] with the average of [1,17] and [79,99] with the average of [79,99] -->
+
+
+# Q8: Produce a histogram or boxplot for each of the numeric variables.
+```{r, echo=FALSE, warning=FALSE}
+for (i in int) {
+  hist(adult[,i], xlab = paste("",i), main = paste("Histogram of" , i))
+}
+
+```
+
+
+
+
+# Q9: Produce a bar chart for each of the categorical variables showing the counts for each unique value.
+```{r, echo=FALSE, warning=FALSE}
+colnames(adult)[6] <- "marital_status"
+colnames(adult)[14] <- "native_country"
+
+ggplot(adult, aes(x = workclass)) + geom_bar()
+ggplot(adult, aes(x = education)) + geom_bar()
+ggplot(adult, aes(x = marital_status)) + geom_bar()
+ggplot(adult, aes(x = occupation)) + geom_bar()
+ggplot(adult, aes(x = relationship)) + geom_bar()
+ggplot(adult, aes(x = race)) + geom_bar()
+ggplot(adult, aes(x = sex)) + geom_bar()
+ggplot(adult, aes(x = native_country)) + geom_bar()
+ggplot(adult, aes(x = income)) + geom_bar()
+```
+
+
+# Data for building models
+```{r, echo=FALSE, warning=FALSE}
+colnames(adult)
+new_adult <- adult[,c("age","workclass","education","marital_status","occupation","relationship","race","sex","capital_net_gain","hours-per-week","income")]
+
+```
+
+```{r, echo=FALSE, warning=FALSE}
+# Convert all categorical variables to factors
+dtype <- as.data.frame(sapply(new_adult,class)) # variables type of new_adult 
+dtype2 <- subset(dtype,!(dtype$`sapply(new_adult, class)` %in% c('integer','numeric'))) # subset of categorical variables
+
+categorical <- rownames(dtype2)
+
+for (var in categorical) {
+  new_adult[,var] <- as.factor(new_adult[,var])
+}
+sapply(new_adult,class)
+```
+
+```{r, echo=FALSE, warning=FALSE}
+colnames(new_adult)[10] <- "hours_per_week"
+levels(new_adult$income) <- c("N","Y")
+```
+
+# Export file
+```{r, echo=FALSE, warning=FALSE}
+#write.csv(new_adult,"D:/SMU/ModB/Data Mining/hw1/new_adult.csv")
+```
+
+
+# Q10 Naïve Bayes Model
+
+#Q10.1 Build a model to predict income > $50K using naïve Bayes. Randomly partition the data into a training set (70%) and a validation set (30%).
+```{r, echo=FALSE, warning=FALSE}
+set.seed(2021)
+training.rows <- sample(1:nrow(new_adult),0.7*nrow(new_adult)) 
+TRAIN <- new_adult[training.rows,]
+HOLDOUT <- new_adult[-training.rows,]
+
+library(e1071)
+library(pROC)
+NB <- naiveBayes(income~.,data=TRAIN)
+```
+
+#Q10.2 Score the validation data (predict) using the model. Produce a confusion table and an ROC curve for the scored validation data.
+```{r, echo=FALSE, warning=FALSE}
+predictions <- predict(NB,newdata=HOLDOUT,type="raw")[,2] #probabilities for last alphabetical class
+roc(HOLDOUT$income,predictions)
+plot(roc(HOLDOUT$income,predictions))
+
+```
+
+# Q10.3 From the confusion table calculate the following metrics: accuracy, misclassification rate, true positive rate, false positive rate, specificity, precision, and prevalence.
+```{r, echo=FALSE, warning=FALSE}
+library(caret)
+classifications <- predict(NB,newdata=HOLDOUT) #Get predictions from model on the data
+confusionmatrix <- confusionMatrix(classifications,HOLDOUT$income, positive = "Y") #Confusion matrix
+
+metrics <- data.frame(matrix(ncol = 1,nrow = 7))
+rownames(metrics) <- c('accuracy', 'misclassification rate', 'true positive rate', 'false positive rate', 'specificity', 'precision' ,'prevalence.')
+colnames(metrics) <- 'values'
+
+metrics['accuracy',1] <- confusionmatrix$overall[1]
+metrics['misclassification rate',1] <- 1 - confusionmatrix$overall[1]
+metrics['true positive rate',1] <- 1802/(561+1802)
+metrics['false positive rate',1] <- 1315/(6091+1315)
+metrics['specificity',1] <- confusionmatrix$byClass[2]
+metrics['precision',1] <- confusionmatrix$byClass[5]
+metrics['prevalence.',1] <- confusionmatrix$byClass[8]
+
+metrics
+```
+
+
+
+# Q11: Logit Model
+# Q11.1 Build a model to predict income > $50K using logistic regression. Randomly partition the data into a training set (70%) and a validation set (30%).
+```{r, echo=FALSE, warning=FALSE}
+Logit <- glm(income~., data = TRAIN,family = binomial)
+```
+
+# Q11.2 For which variables can we reject the null hypothesis that their coefficients equal zero?
+```{r, echo=FALSE, warning=FALSE}
+1-pchisq(25139-15287, 22791-22735)
+```
+<!-- *Comments:  -->
+<!-- Null deviance: 25139  on 22791  degrees of freedom -->
+<!-- Residual deviance: 15287  on 22735  degrees of freedom -->
+
+#Q11.3 Score the validation data (predict) using the model. Produce a confusion table and an ROC curve for the scored validation data.
+```{r, echo=FALSE, warning=FALSE}
+predictions_glm <- predict(Logit,newdata = HOLDOUT) #probabilities for last alphabetical class
+roc(HOLDOUT$income,predictions_glm)
+plot(roc(HOLDOUT$income,predictions_glm))
+
+```
+
+#Q11.4 From the confusion table calculate the following metrics: accuracy, misclassification rate, true positive rate, false positive rate, specificity, precision, and prevalence.
+```{r, echo=FALSE, warning=FALSE}
+library(regclass)
+confusion_matrix(Logit,HOLDOUT)
+
+metrics_glm <- metrics
+
+metrics_glm['accuracy',1] <- (6842+1383)/9769
+metrics_glm['misclassification rate',1] <- 1 - (6842+1383)/9769
+metrics_glm['true positive rate',1] <- 1383/1947
+metrics_glm['false positive rate',1] <- 980/7822       
+metrics_glm['specificity',1] <- 6842/7822            
+metrics_glm['precision',1] <- 1383/2363
+metrics_glm['prevalence.',1] <- 6842/7406
+
+metrics_glm
+```
+
+
+
+#Q12: Tree Model (CART)
+# Q12.1 Build a model to predict income > $50K using a classification tree and a random forest with the same training and validation data used for the naïve Bayes and logistic regression models.
+```{r, echo=FALSE, warning=FALSE}
+library(rpart)
+RPARTfit <- rpart(income~.,data=TRAIN) # Decisoin Tree model
+```
+
+# Q12.2 Which variables are useful for decision rules?
+```{r, echo=FALSE, warning=FALSE}
+varImp(RPARTfit) #Variable Importance
+```
+
+# Q12.3 Show a plot of the tree.
+```{r, echo=FALSE, warning=FALSE}
+library(regclass)
+visualize_model(RPARTfit)
+```
+
+# Q12.4 Score the validation data (predict) using the model. Produce a confusion table and an ROC curve for the scored validation data.
+```{r, echo=FALSE, warning=FALSE}
+library(pROC)
+roc(HOLDOUT$income,predict(RPARTfit,newdata=HOLDOUT,type="prob")[,2])
+plot(roc(HOLDOUT$income,predict(RPARTfit,newdata=HOLDOUT,type="prob")[,2]))
+```
+
+
+# Q12.5 From the confusion table calculate the following metrics: accuracy, misclassification rate, true positive rate, false positive rate, specificity, precision, and prevalence.
+```{r, echo=FALSE, warning=FALSE}
+classifications_Tree <- predict(RPARTfit,newdata=HOLDOUT,type='class') #Get predictions from model on the data
+matrix_tree <- confusionMatrix(classifications_Tree, HOLDOUT$income,positive ='Y') #Confusion matrix
+
+
+metrics_tree <- metrics
+
+metrics_tree['accuracy',1] <- matrix_tree$overall[1]
+metrics_tree['misclassification rate',1] <- 1 - matrix_tree$overall[1]
+metrics_tree['true positive rate',1] <- 1309/(1309+1054)
+metrics_tree['false positive rate',1] <- 582/(6824+582)
+metrics_tree['specificity',1] <- matrix_tree$byClass[2]
+metrics_tree['precision',1] <- matrix_tree$byClass[5]
+metrics_tree['prevalence.',1] <- matrix_tree$byClass[8]
+
+metrics_tree
+
+```
+
+# Random Forest
+```{r, echo=FALSE, warning=FALSE}
+FOREST <- randomForest(income~.,data=TRAIN,mtry=10) # Random Forest Model
+varImp(FOREST) #Variable Importance
+visualize_relationship(FOREST,interest="age",on=TRAIN) # Choose the results from above imortance as interest variable
+
+#ROC and ROC plot
+roc(HOLDOUT$income,predict(FOREST,newdata=HOLDOUT,type="prob")[,2])
+plot(roc(HOLDOUT$income,predict(FOREST,newdata=HOLDOUT,type="prob")[,2]))
+
+
+# Confusion Matrix
+classifications_rf <- predict(FOREST,newdata=HOLDOUT,type='class') #Get predictions from model on the data
+matrix_rf <- confusionMatrix(classifications_rf, HOLDOUT$income,positive='Y') #Confusion matrix
+
+
+metrics_rf <- metrics
+
+metrics_rf['accuracy',1] <- matrix_rf$overall[1]
+metrics_rf['misclassification rate',1] <- 1 - matrix_rf$overall[1]
+metrics_rf['true positive rate',1] <- 1387/(976+1387)
+metrics_rf['false positive rate',1] <- 756/(6650+756)
+metrics_rf['specificity',1] <- matrix_rf$byClass[2]
+metrics_rf['precision',1] <- matrix_rf$byClass[5]
+metrics_rf['prevalence.',1] <- matrix_rf$byClass[8]
+
+metrics_rf
+```
+
+
+# Q13: Compare Models
+
+# Q13.1 Compare these metrics between all three models. Which method do you prefer to use to predict income > $50K? Why? 
+```{r, echo=FALSE, warning=FALSE}
+# Table of performance and key metrics for three models
+
+performance <- cbind(metrics,metrics_glm,metrics_tree,metrics_rf)
+colnames(performance) <- c("Naive Bayes", "Logistical Regression", "Decision Tree", "Random Forest")
+performance["auc",] <- c(0.8864,0.8964,0.8276,0.8673)
+
+performance
+```
+
+
+<!-- Conclustion: Logistical Regresion Model has highest AUC and Accuracy value, so the performance of Logistical Model is the best.  -->
+<!-- * Need to dive into more about other metrics -->
+
+
+
+
